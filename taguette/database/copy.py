@@ -81,6 +81,7 @@ def copy_project(
         validators=dict(
             path=validate.tag_path,
             description=validate.description,
+            color=validate.tag_color,
         ),
     )
 
@@ -115,6 +116,8 @@ def copy_project(
     # Copy commands
     def transform_command(cmd):
         payload = cmd['payload']
+        if payload.get('type') == 'tag_add':
+            payload.setdefault('color', validate.DEFAULT_TAG_COLOR)
 
         if payload['type'] not in Command.TYPES:
             raise ValueError("Unknown command %r" % payload['type'])
@@ -140,6 +143,7 @@ def copy_project(
 
         field_validators = dict(
             type=lambda v: True,  # Already checked above
+            color=validate.tag_color,
             description=validate.description,
             project_name=validate.project_name,
             document_name=validate.document_name,

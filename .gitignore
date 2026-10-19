@@ -5,6 +5,8 @@
 taguette.conf
 
 # Python
+.venv/
+.tools/
 *.py[co]
 .ipynb_checkpoints
 
@@ -61,3 +63,10 @@ desktop.ini
 
 # Vagrant
 .vagrant
+
+# Local verification artifacts and database backups
+/tmp/
+/output/
+/paleta-colores.jpg
+/capturas/
+*.sqlite3.bak

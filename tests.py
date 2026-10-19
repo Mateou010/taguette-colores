@@ -276,6 +276,68 @@ class TestMeasure(unittest.TestCase):
         self.assertEqual(snippet,
                          '<p>R\xE9mi</p>')
 
+    def test_highlight_colors(self):
+        from bs4 import BeautifulSoup
+        colors = {'Ideas': '#e4d5f7', 'Contexto': '#cce5ff'}
+        html = '<p>á<b>bc</b>d</p><p>ef</p>'
+        result = extract.highlight(html, [
+            (0, 5, ['Ideas']), (3, 7, ['Contexto']),
+        ], show_tags=True, tag_colors=colors)
+        soup = BeautifulSoup(result, 'html.parser')
+        labels = soup.select('.taglist')
+        self.assertEqual([label.get_text() for label in labels],
+                         [' [Ideas]', ' [Contexto]'])
+        self.assertEqual([tag['style'] for tag in soup.select('.tag-label')], [
+            'background-color: #e4d5f7; color: #212529;',
+            'background-color: #cce5ff; color: #212529;',
+        ])
+        # 'c' and 'd' belong to both ranges, including across markup.
+        overlap = [span.get_text() for span in soup.select('.highlight')
+                   if 'linear-gradient' in span['style']]
+        self.assertEqual(''.join(overlap), 'cd')
+        for label in labels:
+            label.decompose()
+        self.assertEqual(soup.get_text(), 'ábcdef')
+        self.assertIsNotNone(soup.find('b'))
+
+    def test_custom_color_contrast_and_overlap(self):
+        from bs4 import BeautifulSoup
+        for color, foreground in [('#203864', '#fff'), ('#000000', '#fff'),
+                                  ('#ffffff', '#212529')]:
+            validate.tag_color(color)
+            self.assertEqual(validate.tag_text_color(color), foreground)
+        soup = BeautifulSoup(extract.highlight(
+            '<p>abcdef</p>', [(0, 6, ['dark']), (2, 4, ['light'])],
+            tag_colors={'dark': '#203864', 'light': '#fff2b3'},
+        ), 'html.parser')
+        spans = soup.select('.highlight')
+        self.assertIn('color: #fff;', spans[0]['style'])
+        self.assertEqual(spans[1].get_text(), 'cd')
+        self.assertIn('background-color: #fff; color: #212529;',
+                      spans[1]['style'])
+        self.assertIn('background-size: 100% 0.22em;', spans[1]['style'])
+        self.assertEqual(soup.get_text(), 'abcdef')
+
+    def test_export_color_palette_and_escaping(self):
+        from bs4 import BeautifulSoup
+        for color in (*validate.TAG_COLORS, '#203864', '#A1B2C3', '#000000'):
+            result = extract.highlight(
+                '<p>word</p>', [(0, 4, ['<script>'])], show_tags=True,
+                tag_colors={'<script>': color},
+            )
+            soup = BeautifulSoup(result, 'html.parser')
+            self.assertIn('background-color: ' + color,
+                          soup.select_one('.highlight')['style'])
+            self.assertEqual(soup.select_one('.tag-label').get_text(),
+                             '<script>')
+            self.assertIsNone(soup.find('script'))
+        result = extract.highlight('<p>word</p>', [(0, 4, ['bad'])],
+                                   tag_colors={'bad': 'url(evil)'})
+        self.assertNotIn('url(evil)', result)
+        self.assertIn('background-color: #fff2b3', result)
+        self.assertEqual(extract.highlight('<p>word</p>', [], tag_colors={}),
+                         '<p>word</p>')
+
     def test_highlight(self):
         """Tests highlighting an HTML document with only ASCII characters."""
         html = '<p><u>Hello</u> there <i>World</i></p>'
@@ -802,6 +864,7 @@ class TestMultiuser(MyHTTPTestCase):
                 json.dumps(
                     {
                         "1": {
+                            "color": "#fff2b3",
                             "count": 0, "id": 1, "path": "interesting",
                             "description": "Further review required",
                         },
@@ -835,7 +898,7 @@ class TestMultiuser(MyHTTPTestCase):
             self.assertEqual(response.status, 200)
         self.assertEqual(
             await poll_proj2,
-            {'type': 'tag_add', 'id': 1, 'tag_id': 3,
+            {'color': '#fff2b3', 'type': 'tag_add', 'id': 1, 'tag_id': 3,
              'tag_path': 'people', 'description': "People of interest"})
         poll_proj2 = await self.poll_event(2, 1)
 
@@ -846,7 +909,7 @@ class TestMultiuser(MyHTTPTestCase):
             self.assertEqual(response.status, 200)
         self.assertEqual(
             await poll_proj2,
-            {'type': 'tag_add', 'id': 2, 'tag_id': 4,
+            {'color': '#fff2b3', 'type': 'tag_add', 'id': 2, 'tag_id': 4,
              'tag_path': 'interesting\\places', 'description': ''})
         poll_proj2 = await self.poll_event(2, 2)
 
@@ -1156,40 +1219,22 @@ class TestMultiuser(MyHTTPTestCase):
         ) as response:
             self.assertEqual(response.status, 304)
 
-        # Export document 2 to HTML
+        # Export document 2 to HTML, retaining text, code labels and colors.
+        from bs4 import BeautifulSoup
         async with self.aget('/project/2/export/document/2.html') as response:
             self.assertEqual(response.status, 200)
-            self.assertEqual(
-                response.headers['Content-Type'],
-                'text/html; charset=utf-8',
-            )
-            self.assertEqual(
-                await response.text(),
-                textwrap.dedent('''\
-                <!DOCTYPE html>
-                <html>
-                  <head>
-                    <meta charset="UTF-8">
-                    <style>
-                      .highlight {
-                        background-color: #ff0;
-                      }
-                      .taglist {
-                        font-style: oblique;
-                        background: #fbb !important;
-                      }
-                    </style>
-                    <title>otherdoc</title>
-                  </head>
-                  <body>
-                    <h1>otherdoc</h1>
-                <span class="highlight">diff</span>\
-<span class="taglist"> [interesting\\places]</span>erent con\
-<span class="highlight">tent</span><span class="taglist"> \
-[interesting, people]</span>
-                  </body>
-                </html>'''),
-            )
+            self.assertEqual(response.headers['Content-Type'],
+                             'text/html; charset=utf-8')
+            page = BeautifulSoup(await response.text(), 'html.parser')
+        self.assertEqual(page.title.get_text(), 'otherdoc')
+        self.assertEqual(
+            [span.get_text() for span in page.select('.highlight')],
+            ['diff', 'tent'])
+        self.assertEqual([tag.get_text() for tag in page.select('.tag-label')],
+                         ['interesting\\places', 'interesting', 'people'])
+        for span in page.select('.highlight, .tag-label'):
+            self.assertIn('background-color: #fff2b3;', span['style'])
+        self.assertIn('print-color-adjust: exact', page.style.get_text())
 
         # Export document 2 to unknown format
         async with self.aget('/project/2/export/document/2.dat') as response:
@@ -1814,13 +1859,16 @@ class TestMultiuser(MyHTTPTestCase):
                   'document_name': 'db2doc12.txt'}),
                 (30, 'db1user', 3, -3, {'type': 'document_delete'}),
                 (31, 'db1user', 3, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': 7,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': 7,
                   'tag_path': 'db2tag11'}),
                 (32, 'db1user', 3, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': -3,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': -3,
                   'tag_path': 'db2tagF'}),
                 (33, 'db1user', 3, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': 8,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': 8,
                   'tag_path': 'db2tag12'}),
                 (34, 'db1user', 3, None, {'type': 'tag_delete', 'tag_id': -3}),
                 (35, 'db1user', 3, 7,
@@ -1853,12 +1901,12 @@ class TestMultiuser(MyHTTPTestCase):
         self.assertRowsEqualsExceptDates(
             db1.execute(database.Tag.__table__.select()),
             [
-                (1, 1, 'db1tag11', ''),
-                (2, 1, 'db1tag12', ''),
-                (4, 2, 'db1tag21', ''),
-                (5, 2, 'db1tag22', ''),
-                (7, 3, 'db2tag11', ''),
-                (8, 3, 'db2tag12', ''),
+                (1, 1, 'db1tag11', '', '#fff2b3'),
+                (2, 1, 'db1tag12', '', '#fff2b3'),
+                (4, 2, 'db1tag21', '', '#fff2b3'),
+                (5, 2, 'db1tag22', '', '#fff2b3'),
+                (7, 3, 'db2tag11', '', '#fff2b3'),
+                (8, 3, 'db2tag12', '', '#fff2b3'),
             ],
         )
         self.assertRowsEqualsExceptDates(
@@ -1969,13 +2017,16 @@ class TestMultiuser(MyHTTPTestCase):
                   'document_name': 'db1doc22.txt'}),
                 (4, 'admin', 1, -6, {'type': 'document_delete'}),
                 (5, 'admin', 1, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': 1,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': 1,
                   'tag_path': 'db1tag21'}),
                 (6, 'admin', 1, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': -6,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': -6,
                   'tag_path': 'db1tagF'}),
                 (7, 'admin', 1, None,
-                 {'type': 'tag_add', 'description': '', 'tag_id': 2,
+                 {'color': '#fff2b3',
+                  'type': 'tag_add', 'description': '', 'tag_id': 2,
                   'tag_path': 'db1tag22'}),
                 (8, 'admin', 1, None,
                  {'type': 'tag_delete', 'tag_id': -6}),
@@ -2011,8 +2062,8 @@ class TestMultiuser(MyHTTPTestCase):
                 .order_by(database.Tag.__table__.c.id)
             ),
             [
-                (1, 1, 'db1tag21', ''),
-                (2, 1, 'db1tag22', ''),
+                (1, 1, 'db1tag21', '', '#fff2b3'),
+                (2, 1, 'db1tag22', '', '#fff2b3'),
             ],
         )
         self.assertRowsEqualsExceptDates(
@@ -2257,6 +2308,7 @@ class TestMultiuser(MyHTTPTestCase):
             ],
             [
                 ('admin', 1, None, {
+                    'color': '#fff2b3',
                     'type': 'tag_add', 'tag_id': 2,
                     'tag_path': 'people', 'description': 'new',
                 }),
@@ -2311,10 +2363,12 @@ class TestMultiuser(MyHTTPTestCase):
             ],
             [
                 ('admin', 1, None, {
+                    'color': '#fff2b3',
                     'type': 'tag_add', 'tag_id': 1,
                     'tag_path': 'interesting', 'description': 'yes replace',
                 }),
                 ('admin', 1, None, {
+                    'color': '#fff2b3',
                     'type': 'tag_add', 'tag_id': 2,
                     'tag_path': 'people', 'description': 'new',
                 }),
@@ -2367,6 +2421,141 @@ class TestSingleuser(MyHTTPTestCase):
         close_all_sessions()
         engine = sqlalchemy.create_engine(DATABASE_URI)
         database.Base.metadata.drop_all(bind=engine)
+
+    @unittest.skipUnless(os.environ.get('CALIBRE') and
+                         os.environ.get('TAGUETTE_TEST_PDF_INPUT'),
+                         'Calibre and a PDF input fixture are required')
+    @gen_test(timeout=180)
+    async def test_pdf_color_roundtrip(self):
+        from bs4 import BeautifulSoup
+        async with self.aget(
+            '/?token=' + self.application.single_user_token,
+        ) as response:
+            self.assertEqual(response.status, 302)
+        async with self.apost('/project/new', data=dict(
+            name='PDF color verification', description='',
+        )) as response:
+            self.assertEqual(response.status, 303)
+        with open(os.environ['TAGUETTE_TEST_PDF_INPUT'], 'rb') as fp:
+            original_pdf = fp.read()
+        async with self.apost(
+            '/api/project/1/document/new',
+            data=dict(name='Colores por codigo', description=''),
+            files=dict(file=('example.pdf', 'application/pdf', original_pdf)),
+        ) as response:
+            self.assertEqual(response.status, 200)
+            document_id = (await response.json())['created']
+        db = self.application.DBSession()
+        document = db.query(database.Document).get(document_id)
+        text = BeautifulSoup(document.contents, 'html.parser').get_text()
+        db.close()
+        names = ['Amarillo', 'Verde', 'Azul', 'Violeta', 'Rosa', 'Naranja']
+        tag_ids = []
+        for name, color in zip(names, validate.TAG_COLORS):
+            async with self.apost('/api/project/1/tag/new', json=dict(
+                path=name, description='', color=color,
+            )) as response:
+                self.assertEqual(response.status, 200)
+                tag_id = (await response.json())['id']
+                tag_ids.append(tag_id)
+            start = len(text[:text.index(name)].encode('utf-8'))
+            end = start + len(name.encode('utf-8'))
+            async with self.apost(
+                '/api/project/1/document/%d/highlight/new' % document_id,
+                json=dict(start_offset=start, end_offset=end, tags=[tag_id]),
+            ) as response:
+                self.assertEqual(response.status, 200)
+        async with self.apost('/api/project/1/tag/new', json=dict(
+            path='Personalizado', description='', color='#203864',
+        )) as response:
+            self.assertEqual(response.status, 200)
+            custom_id = (await response.json())['id']
+        custom_start = len(text[:text.index('Prueba')].encode('utf-8'))
+        async with self.apost(
+            '/api/project/1/document/%d/highlight/new' % document_id,
+            json=dict(start_offset=custom_start, end_offset=custom_start + 6,
+                      tags=[custom_id]),
+        ) as response:
+            self.assertEqual(response.status, 200)
+        phrase = 'dos codigos superpuestos'
+        start = len(text[:text.index(phrase)].encode('utf-8'))
+        for offset, end, tags in [(start, start + len(phrase), tag_ids[1:3]),
+                                  (start + 4, start + 11, [tag_ids[4]])]:
+            async with self.apost(
+                '/api/project/1/document/%d/highlight/new' % document_id,
+                json=dict(start_offset=offset, end_offset=end, tags=tags),
+            ) as response:
+                self.assertEqual(response.status, 200)
+        async with self.aget('/project/1/export/document/%d.html' % document_id
+                             ) as response:
+            self.assertEqual(response.status, 200)
+            html = await response.text()
+            for color in (*validate.TAG_COLORS, '#203864'):
+                self.assertIn('background-color: ' + color, html)
+            self.assertIn('background-color: #203864; color: #fff;', html)
+        async with self.aget('/project/1/export/document/%d.pdf' % document_id
+                             ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers['Content-Type'],
+                             'application/pdf')
+            exported_pdf = await response.read()
+            self.assertTrue(exported_pdf.startswith(b'%PDF-'))
+        output = os.environ.get('TAGUETTE_TEST_PDF_OUTPUT')
+        if output:
+            with open(output, 'wb') as fp:
+                fp.write(exported_pdf)
+
+    @gen_test
+    async def test_tag_colors(self):
+        async with self.aget(
+            '/?token=' + self.application.single_user_token,
+        ) as response:
+            self.assertEqual(response.status, 302)
+        async with self.apost(
+            '/project/new', data=dict(name='Colors', description=''),
+        ) as response:
+            self.assertEqual(response.status, 303)
+        for color in (*validate.TAG_COLORS, '#203864', '#A1B2C3', '#000000'):
+            async with self.apost('/api/project/1/tag/new', json=dict(
+                path=color, description='', color=color,
+            )) as response:
+                self.assertEqual(response.status, 200)
+                tag_id = (await response.json())['id']
+            db = self.application.DBSession()
+            tag = db.query(database.Tag).get(tag_id)
+            self.assertEqual(tag.color, color)
+            self.assertEqual(
+                database.Command.tag_add('admin', tag).payload['color'], color,
+            )
+            db.close()
+        async with self.apost('/api/project/1/tag/' + str(tag_id), json=dict(
+            color=validate.TAG_COLORS[1],
+        )) as response:
+            self.assertEqual(response.status, 200)
+        # Omitted color preserves the choice; old clients can still edit tags.
+        async with self.apost('/api/project/1/tag/' + str(tag_id), json=dict(
+            description='Updated',
+        )) as response:
+            self.assertEqual(response.status, 200)
+        db = self.application.DBSession()
+        self.assertEqual(db.query(database.Tag).get(tag_id).color,
+                         validate.TAG_COLORS[1])
+        db.close()
+        for invalid in ['red', '#123', '#12345g', '#12345678', '#abcdef\n',
+                        'url(evil)', None, ['#fff2b3']]:
+            async with self.apost(
+                '/api/project/1/tag/' + str(tag_id), json=dict(color=invalid),
+            ) as response:
+                self.assertEqual(response.status, 400)
+            async with self.apost('/api/project/1/tag/new', json=dict(
+                path='invalid', description='', color=invalid,
+            )) as response:
+                self.assertEqual(response.status, 400)
+        async with self.aget('/project/1') as response:
+            self.assertEqual(response.status, 200)
+            body = await response.text()
+            self.assertEqual(body.count('name="tag-color"'), 7)
+            self.assertIn('"color": "#ccebd8"', body)
 
     @gen_test
     async def test_login(self):
@@ -2793,6 +2982,7 @@ class TestSeleniumMultiuser(SeleniumTest):
                 json.dumps(
                     {
                         "1": {
+                            "color": "#fff2b3",
                             "count": 0, "id": 1, "path": "interesting",
                             "description": "Further review required",
                         },

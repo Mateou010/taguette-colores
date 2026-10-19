@@ -2,6 +2,9 @@ from bs4 import BeautifulSoup, NavigableString
 import opentelemetry.trace
 import prometheus_client
 
+from .validate import DEFAULT_TAG_COLOR, InvalidFormat, tag_color, \
+    tag_text_color
+
 
 tracer = opentelemetry.trace.get_tracer(__name__)
 
@@ -129,14 +132,17 @@ def byte_to_str_index(string, byte_index):
 
 @tracer.start_as_current_span('taguette/highlight')
 @PROM_HIGHLIGHT_TIME.time()
-def highlight(html, highlights, show_tags=False):
+def highlight(html, highlights, show_tags=False, tag_colors=None):
     """Highlight part of an HTML documents.
 
     :param highlights: Iterable of (start, end, tags) triples, which are
         computed over UTF-8 bytes and don't count HTML tags
     :param show_tags: Whether to show the tag names within brackets after each
         highlight
+    :param tag_colors: Optional mapping of tag names to their saved colors.
     """
+    if tag_colors is not None:
+        return _highlight_colored(html, highlights, show_tags, tag_colors)
     # Build a list of starting points and ending points
     starts = []
     ends = []
@@ -285,3 +291,102 @@ def highlight(html, highlights, show_tags=False):
 
     # Back to text
     return str(soup)
+
+
+def _highlight_colored(html, highlights, show_tags, tag_colors):
+    """Split at every range boundary, retaining colors across overlaps.
+
+    Traverse only original text nodes: inserted tag labels must not affect
+    the UTF-8 offsets saved by Taguette.
+    """
+    soup = BeautifulSoup(html, 'html5lib')
+    events = []
+    names = {}
+    for index, hl in enumerate(highlights):
+        if hl[0] >= hl[1]:
+            continue
+        names[index] = hl[2] if len(hl) > 2 else []
+        events.extend([(hl[0], 1, index), (hl[1], 0, index)])
+    events.sort()  # End a range before starting the next one.
+    active = set()
+    event_index = 0
+    offset = 0
+
+    def color_for(name):
+        color = tag_colors.get(name, DEFAULT_TAG_COLOR)
+        try:
+            tag_color(color)
+        except InvalidFormat:
+            return DEFAULT_TAG_COLOR
+        return color
+
+    def piece(text):
+        if not text:
+            return None
+        if not active:
+            return NavigableString(text)
+        colors = sorted({color_for(name) for index in active
+                         for name in names[index]}) or [DEFAULT_TAG_COLOR]
+        foregrounds = {tag_text_color(color) for color in colors}
+        mixed_contrast = len(foregrounds) > 1
+        style = 'background-color: %s; color: %s;' % (
+            '#fff' if mixed_contrast else colors[0],
+            '#212529' if mixed_contrast else tag_text_color(colors[0]),
+        )
+        if len(colors) > 1:
+            stops = ', '.join('%s %g%%, %s %g%%' % (
+                color, i * 100 / len(colors),
+                color, (i + 1) * 100 / len(colors),
+            ) for i, color in enumerate(colors))
+            direction = 'right' if mixed_contrast else 'bottom'
+            style += ' background-image: linear-gradient(to %s, %s);' % (
+                direction, stops)
+            if mixed_contrast:
+                style += (' background-size: 100% 0.22em;'
+                          ' background-repeat: no-repeat;'
+                          ' background-position: left bottom;')
+        span = soup.new_tag('span', attrs={
+            'class': 'highlight', 'style': style})
+        span.string = text
+        return span
+
+    def label(index):
+        span = soup.new_tag('span', attrs={'class': 'taglist'})
+        span.append(NavigableString(' ['))
+        for i, name in enumerate(names[index]):
+            if i:
+                span.append(NavigableString(', '))
+            tag = soup.new_tag('span', attrs={
+                'class': 'tag-label',
+                'style': 'background-color: %s; color: %s;' % (
+                    color_for(name), tag_text_color(color_for(name))),
+            })
+            tag.string = name
+            span.append(tag)
+        span.append(NavigableString(']'))
+        return span
+
+    for node in list(soup.body.find_all(string=True)):
+        text = str(node)
+        end = offset + len(text.encode('utf-8'))
+        cursor = 0
+        while event_index < len(events) and events[event_index][0] <= end:
+            position, is_start, index = events[event_index]
+            split = byte_to_str_index(text, max(0, position - offset))
+            fragment = piece(text[cursor:split])
+            if fragment is not None:
+                node.insert_before(fragment)
+            cursor = split
+            if is_start:
+                active.add(index)
+            else:
+                active.discard(index)
+                if show_tags:
+                    node.insert_before(label(index))
+            event_index += 1
+        fragment = piece(text[cursor:])
+        if fragment is not None:
+            node.insert_before(fragment)
+        node.extract()
+        offset = end
+    return soup.body.decode_contents()

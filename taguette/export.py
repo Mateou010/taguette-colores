@@ -261,6 +261,8 @@ async def highlighted_document(db, document, ext, *, config, locale):
         .options(joinedload(database.Highlight.tags))
     ).all()
 
+    tag_colors = {tag.path: tag.color
+                  for hl in highlights for tag in hl.tags}
     highlights = [
         (hl.start_offset, hl.end_offset, [t.path for t in hl.tags])
         for hl in highlights
@@ -271,6 +273,7 @@ async def highlighted_document(db, document, ext, *, config, locale):
         lambda: extract.highlight(
             document.contents, highlights,
             show_tags=True,
+            tag_colors=tag_colors,
         ),
     )
 

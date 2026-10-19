@@ -311,6 +311,26 @@
         <div class="container">
           <input type="text" class="form-group" id="tag-add-path" name="tag-add-path" placeholder="{% trans "tag change form placeholder" %}Name{% endtrans %}" required />
           <textarea class="form-control" id="tag-add-description" name="tag-add-description" placeholder="{% trans "tag change form placeholder" %}Description{% endtrans %}"></textarea>
+          <fieldset class="tag-color-field mt-3">
+            <legend>{% trans %}Highlight color{% endtrans %}</legend>
+            <div class="tag-color-options">
+              {% for color, name in [('#fff2b3', gettext('Yellow')), ('#ccebd8', gettext('Green')), ('#cce5ff', gettext('Blue')), ('#e4d5f7', gettext('Purple')), ('#ffd6df', gettext('Pink')), ('#ffdfbf', gettext('Orange'))] %}
+              <label class="tag-color-option" title="{{ name }}">
+                <input type="radio" name="tag-color" value="{{ color }}" aria-label="{{ name }}" {% if loop.first %}checked{% endif %} />
+                <span style="background-color: {{ color }}" aria-hidden="true"></span>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="tag-color-custom mt-3">
+              <label class="mb-0" for="tag-color-custom-choice">
+                <input id="tag-color-custom-choice" type="radio" name="tag-color" value="custom" />
+                {% trans %}Custom color{% endtrans %}
+              </label>
+              <input id="tag-color-custom" type="color" value="#fff2b3" aria-label="{% trans %}Choose a custom color{% endtrans %}" />
+              <input id="tag-color-hex" type="text" value="#fff2b3" maxlength="7" required pattern="#[0-9a-fA-F]{6}" aria-label="{% trans %}Hex color{% endtrans %}" spellcheck="false" />
+            </div>
+            <p class="tag-color-preview mt-2 mb-0"><span id="tag-color-preview">{% trans %}This is how your text will look.{% endtrans %}</span></p>
+          </fieldset>
         </div>
       </div>
       <div class="modal-footer">

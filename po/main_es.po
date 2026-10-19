@@ -1164,3 +1164,39 @@ msgstr "Favor de ingresar una nueva contraseña aquí:"
 msgctxt "form submit button"
 msgid "Set new password"
 msgstr "Cambiar contraseña"
+
+msgid "Highlight color"
+msgstr "Color del resaltado"
+
+msgid "Yellow"
+msgstr "Amarillo"
+
+msgid "Green"
+msgstr "Verde"
+
+msgid "Blue"
+msgstr "Azul"
+
+msgid "Purple"
+msgstr "Violeta"
+
+msgid "Pink"
+msgstr "Rosa"
+
+msgid "Orange"
+msgstr "Naranja"
+
+msgid "This is how your text will look."
+msgstr "Así se verá tu texto."
+
+msgid "Invalid tag color"
+msgstr "Color de etiqueta no válido"
+
+msgid "Custom color"
+msgstr "Color personalizado"
+
+msgid "Choose a custom color"
+msgstr "Elegir un color personalizado"
+
+msgid "Hex color"
+msgstr "Color hexadecimal"

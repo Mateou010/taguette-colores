@@ -314,9 +314,11 @@ class TagAdd(BaseHandler):
             obj = self.get_json()
             validate.tag_path(obj['path'])
             validate.description(obj['description'])
+            color = obj.get('color', validate.DEFAULT_TAG_COLOR)
+            validate.tag_color(color)
             tag = database.Tag(project=project,
                                path=obj['path'],
-                               description=obj['description'])
+                               description=obj['description'], color=color)
             try:
                 self.db.add(tag)
                 self.db.flush()  # Need to flush to get tag.id
@@ -351,6 +353,9 @@ class TagUpdate(BaseHandler):
             if tag is None or tag.project_id != project.id:
                 return self.send_error_json(404, self.gettext("No such tag"))
             if obj:
+                if 'color' in obj:
+                    validate.tag_color(obj['color'])
+                    tag.color = obj['color']
                 if 'path' in obj:
                     validate.tag_path(obj['path'])
                     tag.path = obj['path']

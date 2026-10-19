@@ -795,6 +795,54 @@ function linkTag(elem, tag_path) {
 
 linkTag(document.getElementById('load-all-tags'), '');
 
+// Keep this palette in sync with validate.TAG_COLORS.
+var tagColors = ['#fff2b3', '#ccebd8', '#cce5ff', '#e4d5f7', '#ffd6df', '#ffdfbf'];
+function tagColor(tag) {
+  return tag && /^#[0-9a-f]{6}$/i.test(tag.color) ? tag.color.toLowerCase() : tagColors[0];
+}
+function tagTextColor(color) {
+  var linear = [1, 3, 5].map(function(i) {
+    var c = parseInt(color.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  var luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  if((luminance + 0.05) / 0.0685 >= 4.5) return '#212529';
+  return luminance < 0.179 ? '#fff' : '#000';
+}
+function tagColorDot(tag) {
+  return '<span class="tag-color-dot" aria-hidden="true" style="background-color:' + tagColor(tag) + '"></span>';
+}
+
+// Include ancestor highlights so overlapping fragments retain every color.
+function refreshHighlightColors() {
+  document.querySelectorAll('#document-view .highlight').forEach(function(elem) {
+    var colors = [];
+    var node = elem;
+    while(node && node.id !== 'document-contents') {
+      if(node.classList && node.classList.contains('highlight')) {
+        var hl = highlights[node.getAttribute('data-highlight-id')];
+        if(hl) hl.tags.forEach(function(id) {
+          var color = tagColor(tags[id]);
+          if(!colors.includes(color)) colors.push(color);
+        });
+      }
+      node = node.parentNode;
+    }
+    if(!colors.length) colors.push(tagColors[0]);
+    colors.sort();
+    var foregrounds = colors.map(tagTextColor);
+    var mixedContrast = foregrounds.some(function(color) { return color !== foregrounds[0]; });
+    elem.style.backgroundColor = mixedContrast ? '#fff' : colors[0];
+    elem.style.color = mixedContrast ? '#212529' : foregrounds[0];
+    elem.style.backgroundSize = mixedContrast ? '100% 0.22em' : '';
+    elem.style.backgroundRepeat = mixedContrast ? 'no-repeat' : '';
+    elem.style.backgroundPosition = mixedContrast ? 'left bottom' : '';
+    elem.style.backgroundImage = colors.length > 1 ? 'linear-gradient(to ' + (mixedContrast ? 'right' : 'bottom') + ', ' + colors.map(function(color, i) {
+      return color + ' ' + (i * 100 / colors.length) + '%, ' + color + ' ' + ((i + 1) * 100 / colors.length) + '%';
+    }).join(', ') + ')' : 'none';
+  });
+}
+
 function addTag(tag) {
   if(!('count' in tag) && tag.id in tags) {
     tag.count = tags[tag.id].count;
@@ -871,7 +919,7 @@ function updateTagsList() {
     elem.innerHTML =
       '<div class="d-flex justify-content-between align-items-center">' +
       '  <div class="tag-name">' +
-      '    <a id="tag-link-' + tag.id + '">' + escapeHtml(tag.path) + '</a>' +
+      '    <a id="tag-link-' + tag.id + '">' + tagColorDot(tag) + escapeHtml(tag.path) + '</a>' +
       '  </div>' +
       '  <div style="white-space: nowrap;">' +
       '    <span class="badge badge-secondary badge-pill" id="tag-' + tag.id + '-count">' + tag.count + '</span>' +
@@ -958,7 +1006,7 @@ function updateModalTagsList() {
     elem.className = 'tag-name form-check ' + searchHitClass;
     elem.innerHTML =
       '<input type="checkbox" class="form-check-input" value="' + tag.id + '" name="highlight-add-tags" id="highlight-add-tags-' + tag.id + '" />' +
-      '<label for="highlight-add-tags-' + tag.id + '" class="form-check-label ">' + escapeHtml(tag.path) + '</label>';
+      '<label for="highlight-add-tags-' + tag.id + '" class="form-check-label ">' + tagColorDot(tag) + escapeHtml(tag.path) + '</label>';
     tags_modal_list.insertBefore(elem, before);
   }
   if(entries.length == 0) {
@@ -1014,6 +1062,42 @@ function updateTagCount(id, delta) {
 }
 
 var tag_add_modal = document.getElementById('tag-add-modal');
+function selectedTagColor() {
+  var selected = document.querySelector('input[name="tag-color"]:checked').value;
+  return selected === 'custom' ? document.getElementById('tag-color-custom').value : selected;
+}
+function updateColorPreview(color) {
+  var preview = document.getElementById('tag-color-preview');
+  preview.style.backgroundColor = color;
+  preview.style.color = tagTextColor(color);
+}
+function selectTagColor(color) {
+  color = color.toLowerCase();
+  var option = document.querySelector('input[name="tag-color"][value="' + color + '"]');
+  document.getElementById('tag-color-custom').value = color;
+  document.getElementById('tag-color-hex').value = color;
+  document.getElementById('tag-color-hex').setCustomValidity('');
+  (option || document.getElementById('tag-color-custom-choice')).checked = true;
+  updateColorPreview(color);
+}
+document.querySelectorAll('input[name="tag-color"]').forEach(function(input) {
+  input.addEventListener('change', function() {
+    if(input.value === 'custom') updateColorPreview(selectedTagColor());
+    else selectTagColor(input.value);
+  });
+});
+document.getElementById('tag-color-custom').addEventListener('input', function(e) {
+  selectTagColor(e.target.value);
+  document.getElementById('tag-color-custom-choice').checked = true;
+});
+document.getElementById('tag-color-hex').addEventListener('input', function(e) {
+  document.getElementById('tag-color-custom-choice').checked = true;
+  if(/^#[0-9a-f]{6}$/i.test(e.target.value)) {
+    var color = e.target.value.toLowerCase();
+    document.getElementById('tag-color-custom').value = color;
+    updateColorPreview(color);
+  }
+});
 
 $(tag_add_modal).on('shown.bs.modal', function() {
   document.getElementById('tag-add-path').focus();
@@ -1021,6 +1105,7 @@ $(tag_add_modal).on('shown.bs.modal', function() {
 
 function createTag() {
   document.getElementById('tag-add-form').reset();
+  selectTagColor(tagColors[Object.keys(tags).length % tagColors.length]);
   document.getElementById('tag-add-id').value = '';
   document.getElementById('tag-add-label-new').style.display = '';
   document.getElementById('tag-add-label-change').style.display = 'none';
@@ -1032,6 +1117,7 @@ function createTag() {
 
 function editTag(tag_id) {
   document.getElementById('tag-add-form').reset();
+  selectTagColor(tagColor(tags[tag_id]));
   document.getElementById('tag-add-id').value = '' + tag_id;
   document.getElementById('tag-add-path').value = tags['' + tag_id].path;
   document.getElementById('tag-add-description').value = tags['' + tag_id].description;
@@ -1064,14 +1150,16 @@ document.getElementById('tag-add-form').addEventListener('submit', function(e) {
     req = postJSON(
       '/api/project/' + project_id + '/tag/' + tag_id,
       {path: tag_path,
-       description: document.getElementById('tag-add-description').value}
+       description: document.getElementById('tag-add-description').value,
+       color: selectedTagColor()}
     );
   } else {
     console.log("Posting new tag");
     req = postJSON(
       '/api/project/' + project_id + '/tag/new',
       {path: tag_path,
-       description: document.getElementById('tag-add-description').value}
+       description: document.getElementById('tag-add-description').value,
+       color: selectedTagColor()}
     );
   }
   showSpinner();
@@ -1205,6 +1293,7 @@ function setHighlight(highlight) {
   tag_names = tag_names.join(", ");
   try {
     highlightSelection([highlight.start_offset, highlight.end_offset], id, editHighlight, tag_names);
+    refreshHighlightColors();
     console.log("Highlight set:", highlight);
   } catch(error) {
     console.error(
@@ -1226,14 +1315,15 @@ function removeHighlight(id) {
 
   // Loop over highlight-<id> elements
   var elements = document.getElementsByClassName('highlight-' + id);
-  for(var i = 0; i < elements.length; ++i) {
+  while(elements.length) {
     // Move children up and delete this element
-    var node = elements[i];
+    var node = elements[0];
     while(node.firstChild) {
       node.parentNode.insertBefore(node.firstChild, node);
     }
     node.parentNode.removeChild(node);
   }
+  refreshHighlightColors();
 }
 
 // Backlight
@@ -1925,6 +2015,7 @@ function longPollForEvents() {
         addTag({
           id: event.tag_id,
           path: event.tag_path,
+          color: event.color,
           description: event.description
         });
       } else if(event.type === 'tag_delete') {

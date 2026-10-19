@@ -1,4 +1,5 @@
 import os
+import re
 import string
 
 from .utils import _f
@@ -9,6 +10,29 @@ class InvalidFormat(ValueError):
     def __init__(self, message):
         super(InvalidFormat, self).__init__(message)
         self.message = message
+
+
+TAG_COLORS = ('#fff2b3', '#ccebd8', '#cce5ff', '#e4d5f7', '#ffd6df', '#ffdfbf')
+DEFAULT_TAG_COLOR = TAG_COLORS[0]
+
+
+def tag_color(color):
+    if (not isinstance(color, str)
+            or not re.fullmatch(r'#[0-9a-fA-F]{6}', color)):
+        raise InvalidFormat(_f("Invalid tag color"))
+    return True
+
+
+def tag_text_color(color):
+    """Choose a readable foreground for a validated RGB background."""
+    channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+              for c in channels]
+    luminance = sum(c * weight for c, weight in
+                    zip(linear, (0.2126, 0.7152, 0.0722)))
+    if (luminance + 0.05) / 0.0685 >= 4.5:
+        return '#212529'
+    return '#fff' if luminance < 0.179 else '#000'
 
 
 def description(descr):

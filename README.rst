@@ -1,6 +1,20 @@
 Taguette
 ========
 
+This copy adds custom code colors
+--------------------------------
+
+This repository is based on the `official Taguette project
+<https://gitlab.com/remram44/taguette>`__ (version 1.5.2, commit ``52fcdce``).
+It adds six quick colors and a custom color picker for each code, automatic
+text contrast, and color preservation when exporting annotated documents
+to HTML and PDF. The original BSD-3-Clause license and project history
+are preserved.
+
+See `CAMBIOS_LOCALES.md <CAMBIOS_LOCALES.md>`__ for Spanish usage,
+installation, migration, and verification instructions. Your databases,
+virtual environments and Calibre installation are excluded from this repository.
+
 A spin on the phrase "tag it!", `Taguette <https://www.taguette.org/>`__ is a free and open source qualitative research tool that allows users to:
 
 + Import PDFs, Word Docs (``.docx``), Text files (``.txt``), HTML, EPUB, MOBI, Open Documents (``.odt``), and Rich Text Files (``.rtf``).

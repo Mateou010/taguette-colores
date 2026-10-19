@@ -733,6 +733,7 @@ class Project(BaseHandler):
         tags_json = html_safe_json_dumps({
             str(tag.id): {'id': tag.id,
                           'path': tag.path,
+                          'color': tag.color,
                           'description': tag.description,
                           'count': tag.highlights_count}
             for tag in project.tags
